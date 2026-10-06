@@ -17,11 +17,7 @@ public class Agent_MCP implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
-		LOGGER.info("Hello Fabric world!");
+		// Everything lives in the client entrypoint (com.mcp.client.Agent_MCPClient).
 	}
 
 	public static Identifier id(String path) {

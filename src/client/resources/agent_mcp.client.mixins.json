@@ -3,7 +3,10 @@
 	"package": "com.mcp.client.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
-		"ExampleClientMixin"
+		"ChatComponentAccessor",
+		"KeyboardHandlerInvoker",
+		"KeyMappingAccessor",
+		"MinecraftMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

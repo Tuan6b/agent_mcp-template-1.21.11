@@ -2,18 +2,14 @@
 	"schemaVersion": 1,
 	"id": "agent_mcp",
 	"version": "${version}",
-	"name": "Agent_MCP",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"name": "Agent MCP",
+	"description": "Embedded MCP server (http://127.0.0.1:25599/mcp) that lets coding agents and AI models drive the client: input, GUI, camera, chat/commands, screenshots, logs and Iris shaders. Built for automated shader and mod testing.",
 	"authors": [
-		"Me!"
+		"Tuan6b"
 	],
-	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
-	},
 	"license": "CC0-1.0",
 	"icon": "assets/agent_mcp/icon.png",
-	"environment": "*",
+	"environment": "client",
 	"entrypoints": {
 		"main": [
 			"com.mcp.Agent_MCP"
@@ -23,7 +19,6 @@
 		]
 	},
 	"mixins": [
-		"agent_mcp.mixins.json",
 		{
 			"config": "agent_mcp.client.mixins.json",
 			"environment": "client"
