@@ -1,6 +1,6 @@
 # Agent MCP
 
-A client-side Fabric mod for Minecraft 1.21.11 that embeds an [MCP](https://modelcontextprotocol.io) server inside the game.
+A client-side Fabric mod for Minecraft **1.21.11** and **26.3** that embeds an [MCP](https://modelcontextprotocol.io) server inside the game.
 Coding agents and AI models connect to it to drive the client: move, look, click menus, press keys, run commands,
 take screenshots, read logs, and switch Iris shader packs. It's meant for automated testing of shaders and mods.
 
@@ -8,6 +8,17 @@ take screenshots, read logs, and switch Iris shader packs. It's meant for automa
 - Change the port with the JVM argument `-Dagent_mcp.port=<port>`.
 - The mod sets `pauseOnLostFocus` to false at startup, so the game keeps running while the agent's window has focus.
   Minecraft writes this value to `options.txt` the next time it saves settings, so the change persists.
+
+## Install
+
+Pick the jar that matches your game version and put it in `.minecraft/mods/` together with Fabric API:
+
+| Minecraft | Jar | Needs |
+|---|---|---|
+| 1.21.11 | `agent_mcp-<version>+1.21.11.jar` | Fabric Loader 0.19.5+, Java 21+ |
+| 26.3 | `agent_mcp-<version>+26.3.jar` | Fabric Loader 0.19.5+, Java 25+ |
+
+Sodium and Iris are optional; the `shader` tool needs Iris.
 
 ## Connect an agent
 
@@ -62,22 +73,37 @@ A typical shader test loop:
 
 ## Development
 
-Loom 1.18 needs **JDK 25** to run Gradle (the mod itself targets Java 21):
+Gradle needs **JDK 25** (Loom 1.18 and Minecraft 26.x both require it). The 1.21.11 jar still targets Java 21.
 
 ```bash
-JAVA_HOME="/path/to/jdk-25" ./gradlew runClient
+JAVA_HOME="/path/to/jdk-25" ./gradlew build
 ```
 
-`runClient` loads Sodium and Iris (dev only, never bundled into the jar), so you can test shader packs from `run/shaderpacks/`.
-`run/` is gitignored, so a fresh clone starts with no packs; drop one in before testing.
-To build the jar, run `./gradlew build`; the output goes to `build/libs/`.
+`build` produces both jars, in `versions/1.21.11/build/libs/` and `versions/26.3/build/libs/`.
 
-Layout (all in `src/client`):
+To run a dev client, use `./gradlew :1.21.11:runClient` or `./gradlew :26.3:runClient`. Each version keeps its own game folder in `versions/<mc>/run/`, which is gitignored, so a fresh clone starts with no worlds or shader packs. Drop packs into `run/shaderpacks/` before testing.
 
-- `McpServer`: the JSON-RPC server over HTTP.
-- `Tools`: the tool definitions.
-- `Agent_MCPClient`: startup, held-key ticking, and the frame counter.
-- `mixin/`: the frame counter hook, the mining-while-unfocused fix, and accessors for key mappings, the keyboard handler, and chat.
+Shader mods in dev (never bundled into the jars):
+
+- **1.21.11:** Sodium and Iris come from Modrinth automatically.
+- **26.3:** Sodium comes from Modrinth. Put an Iris 26.3 jar in `versions/26.3/run/mods/` yourself.
+
+### Layout
+
+One shared source tree is compiled once per Minecraft version:
+
+- `src/`: all mod code, shared by both versions.
+  - `McpServer`: the JSON-RPC server over HTTP.
+  - `Tools`: the tool definitions.
+  - `Agent_MCPClient`: startup, held-key ticking, and the frame counter.
+  - `mixin/`: the frame counter hook, the mining-while-unfocused fix, and accessors for key mappings, the keyboard handler, and chat.
+- `versions/<mc>/`: that version's Loom plugin, dependencies, and `Compat.java`.
+  - 1.21.11 uses `fabric-loom-remap` with Mojang mappings; 26.3 is unobfuscated and uses plain `fabric-loom`.
+  - `Compat` holds the few APIs that differ between versions: screen and HUD access, chat messages, the render target, day time, and input events.
+  - 26.3 switched input from GLFW to SDL3, so key codes, mouse button numbers, and modifier bits all changed. `Tools` reads them from `InputConstants`, which each version compiles in with its own values.
+- `gradle/common.gradle`: build settings shared by both versions.
+
+To add another Minecraft version, add a `versions/<mc>/` folder with a `build.gradle`, a `gradle.properties`, and a `Compat.java`, then add the version to `settings.gradle`.
 
 ## License
 

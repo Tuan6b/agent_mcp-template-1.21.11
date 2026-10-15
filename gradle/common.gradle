@@ -1,0 +1,63 @@
+// Applied by every versions/<mc>/build.gradle after its Loom plugin.
+// Shared code comes from the root src/; each version adds its own src/ (Compat.java) on top.
+
+version = "${project.mod_version}+${project.minecraft_version}"
+group = project.maven_group
+base.archivesName = 'agent_mcp'
+
+repositories {
+	maven {
+		url = "https://api.modrinth.com/maven"
+		content { includeGroup "maven.modrinth" }
+	}
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"agent_mcp" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+sourceSets {
+	main {
+		java.srcDir rootProject.file('src/main/java')
+		resources.srcDir rootProject.file('src/main/resources')
+	}
+	client {
+		java.srcDir rootProject.file('src/client/java')
+		resources.srcDir rootProject.file('src/client/resources')
+	}
+}
+
+def resourceProps = [version: project.version, minecraft_version: project.minecraft_version, java_version: project.java_version]
+
+processResources {
+	inputs.properties resourceProps
+	filesMatching("fabric.mod.json") { expand resourceProps }
+}
+
+processClientResources {
+	inputs.properties resourceProps
+	filesMatching("agent_mcp.client.mixins.json") { expand resourceProps }
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = project.java_version as int
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.toVersion(project.java_version)
+	targetCompatibility = JavaVersion.toVersion(project.java_version)
+}
+
+jar {
+	from(rootProject.file("LICENSE")) {
+		rename { "${it}_agent_mcp" }
+	}
+}

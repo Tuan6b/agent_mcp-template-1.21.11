@@ -116,7 +116,7 @@ public final class McpServer {
 		info.addProperty("version", "1.0.0");
 		r.add("serverInfo", info);
 		r.addProperty("instructions", """
-				Controls a running Minecraft (Fabric 1.21.11) client for testing shaders and mods.
+				Controls a running Minecraft (Fabric) client for testing shaders and mods.
 				Typical loop: get_state -> act (press_keys / look / mouse / key / chat) -> screenshot to verify.
 				Menus: mouse with a widget label or index from get_state (GUI-scaled coords). In game: press_keys + look.
 				Stage scenes with chat commands ('/time set', '/weather', '/tp', '/gamemode'); check read_log for shader/mod errors.""");

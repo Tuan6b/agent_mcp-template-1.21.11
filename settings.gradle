@@ -11,3 +11,9 @@ pluginManagement {
 
 // Should match your modid
 rootProject.name = 'agent_mcp'
+
+// One project per supported Minecraft version: ./gradlew :26.3:runClient
+['1.21.11', '26.3'].each {
+	include it
+	project(":$it").projectDir = file("versions/$it")
+}

@@ -1,0 +1,14 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' // 26.x ships unobfuscated: no mappings, no remapping
+}
+
+apply from: rootProject.file('gradle/common.gradle')
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Sodium for `runClient` only. Iris for 26.3 goes in run/mods/ by hand (see README); never bundled.
+	localRuntime "maven.modrinth:sodium:${project.sodium_version}"
+}

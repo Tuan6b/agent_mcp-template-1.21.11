@@ -12,7 +12,6 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.platform.Window;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.GuiMessage;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
@@ -31,8 +30,6 @@ import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
-import net.minecraft.client.input.CharacterEvent;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -235,14 +232,15 @@ public final class Tools {
 		s.addProperty("paused", mc.isPaused());
 		s.addProperty("window_focused", mc.isWindowActive());
 		s.addProperty("in_world", mc.player != null && mc.level != null);
-		if (mc.getOverlay() != null) s.addProperty("loading_overlay", true);
+		if (Compat.loadingOverlay(mc)) s.addProperty("loading_overlay", true);
 		if (!Agent_MCPClient.HELD.isEmpty()) s.addProperty("held_keys", Agent_MCPClient.HELD.keySet().stream().map(KeyMapping::getName).toList().toString());
-		if (mc.screen != null) {
+		Screen open = Compat.screen(mc);
+		if (open != null) {
 			JsonObject screen = new JsonObject();
-			screen.addProperty("title", mc.screen.getTitle().getString());
-			screen.addProperty("class", mc.screen.getClass().getName());
+			screen.addProperty("title", open.getTitle().getString());
+			screen.addProperty("class", open.getClass().getName());
 			JsonArray widgets = new JsonArray();
-			List<GuiEventListener> list = widgets(mc.screen);
+			List<GuiEventListener> list = widgets(open);
 			for (int i = 0; i < list.size(); i++) widgets.add(widget(i, list.get(i)));
 			screen.add("widgets", widgets);
 			s.add("screen", screen);
@@ -259,7 +257,7 @@ public final class Tools {
 		if (mc.gameMode != null) s.addProperty("gamemode", mc.gameMode.getPlayerMode().getName());
 		s.addProperty("dimension", level.dimension().identifier().toString());
 		s.addProperty("biome", level.getBiome(p.blockPosition()).unwrapKey().map(k -> k.identifier().toString()).orElse("unknown"));
-		s.addProperty("time_of_day", level.getDayTime() % 24000);
+		s.addProperty("time_of_day", Compat.dayTime(level) % 24000);
 		s.addProperty("weather", level.isThundering() ? "thunder" : level.isRaining() ? "rain" : "clear");
 		HitResult hit = mc.hitResult;
 		if (hit instanceof BlockHitResult b && hit.getType() == HitResult.Type.BLOCK) {
@@ -282,9 +280,9 @@ public final class Tools {
 				.limit(10)
 				.forEach(e -> entities.add(describe(e, p)));
 		s.add("nearby_entities", entities);
-		List<GuiMessage> chat = chat(mc);
+		List<?> chat = chat(mc);
 		JsonArray recent = new JsonArray();
-		for (int i = Math.min(10, chat.size()) - 1; i >= 0; i--) recent.add(chat.get(i).content().getString());
+		for (int i = Math.min(10, chat.size()) - 1; i >= 0; i--) recent.add(Compat.chatText(chat.get(i)));
 		s.add("recent_chat", recent);
 		return s;
 	}
@@ -299,8 +297,8 @@ public final class Tools {
 		Minecraft mc = Minecraft.getInstance();
 		boolean hideHud = a.has("hide_hud") && a.get("hide_hud").getAsBoolean();
 		boolean wasHidden = onClient(() -> {
-			boolean prev = mc.options.hideGui;
-			if (hideHud) mc.options.hideGui = true;
+			boolean prev = Compat.hudHidden(mc);
+			if (hideHud) Compat.setHudHidden(mc, true);
 			return prev;
 		});
 		CompletableFuture<NativeImage> shot = new CompletableFuture<>();
@@ -309,14 +307,17 @@ public final class Tools {
 		try {
 			awaitFrames(2); // the frame must be rendered after the agent's last action
 			factor = onClient(() -> {
-				RenderTarget target = mc.getMainRenderTarget();
+				RenderTarget target = Compat.mainRenderTarget(mc);
 				int f = downscale(target.width, target.height, intArg(a, "downscale", (target.width + 1279) / 1280));
 				Screenshot.takeScreenshot(target, f, shot::complete); // GPU readback completes on a later frame
 				return f;
 			});
 			image = shot.get(TIMEOUT_S, TimeUnit.SECONDS);
 		} finally {
-			if (hideHud) onClient(() -> mc.options.hideGui = wasHidden);
+			if (hideHud) onClient(() -> {
+				Compat.setHudHidden(mc, wasHidden);
+				return null;
+			});
 		}
 
 		Files.createDirectories(file.getParent());
@@ -361,13 +362,12 @@ public final class Tools {
 		for (JsonElement e : a.getAsJsonArray("keys")) {
 			String name = e.getAsString().toLowerCase(Locale.ROOT);
 			InputConstants.Key k = InputConstants.getKey(name.startsWith("key.") ? name : "key.keyboard." + name);
-			if (k.getType() != InputConstants.Type.KEYSYM || k.getValue() < 0) throw new IllegalArgumentException("Not a keyboard key: " + name);
+			if (!Compat.isKeyboard(k) || k.getValue() < 0) throw new IllegalArgumentException("Not a keyboard key: " + name);
 			codes.add(k.getValue());
-			mods |= switch (k.getValue()) { // GLFW modifier bits for held modifier keys
-				case 340, 344 -> 1;
-				case 341, 345 -> 2;
-				case 342, 346 -> 4;
-				case 343, 347 -> 8;
+			mods |= switch (k.getValue()) { // modifier bits for held modifier keys (GLFW in 1.21, SDL in 26.x)
+				case InputConstants.KEY_LSHIFT, InputConstants.KEY_RSHIFT -> InputConstants.MOD_SHIFT;
+				case InputConstants.KEY_LCONTROL, InputConstants.KEY_RCONTROL -> InputConstants.MOD_CONTROL;
+				case InputConstants.KEY_LALT, InputConstants.KEY_RALT -> InputConstants.MOD_ALT;
 				default -> 0;
 			};
 		}
@@ -375,12 +375,12 @@ public final class Tools {
 		Minecraft mc = Minecraft.getInstance();
 		KeyboardHandlerInvoker keyboard = (KeyboardHandlerInvoker) mc.keyboardHandler;
 		onClient(() -> {
-			for (int code : codes) keyboard.agent_mcp$keyPress(mc.getWindow().handle(), 1, new KeyEvent(code, 0, modifiers));
+			for (int code : codes) keyboard.agent_mcp$keyPress(mc.getWindow().handle(), 1, Compat.keyEvent(code, modifiers));
 			return null;
 		});
 		awaitTicks(intArg(a, "ticks", 0));
 		String screen = onClient(() -> {
-			for (int i = codes.size() - 1; i >= 0; i--) keyboard.agent_mcp$keyPress(mc.getWindow().handle(), 0, new KeyEvent(codes.get(i), 0, modifiers));
+			for (int i = codes.size() - 1; i >= 0; i--) keyboard.agent_mcp$keyPress(mc.getWindow().handle(), 0, Compat.keyEvent(codes.get(i), modifiers));
 			return screenTitle(mc);
 		});
 		return text("Pressed " + a.get("keys") + ". Screen now: " + screen);
@@ -390,17 +390,17 @@ public final class Tools {
 		String s = str(a, "text", "");
 		return text(onClient(() -> {
 			Screen screen = requireScreen();
-			s.codePoints().forEach(cp -> screen.charTyped(new CharacterEvent(cp, 0)));
+			s.codePoints().forEach(cp -> screen.charTyped(Compat.charEvent(cp)));
 			return "Typed " + s.length() + " chars into " + screenTitle(Minecraft.getInstance());
 		}));
 	}
 
 	private static JsonArray mouse(JsonObject a) throws Exception {
 		String action = str(a, "action", "click");
-		int button = switch (str(a, "button", "left")) {
-			case "right" -> 1;
-			case "middle" -> 2;
-			default -> 0;
+		int button = switch (str(a, "button", "left")) { // 1.21 numbers buttons from 0 (GLFW), 26.x from 1 (SDL)
+			case "right" -> InputConstants.MOUSE_BUTTON_RIGHT;
+			case "middle" -> InputConstants.MOUSE_BUTTON_MIDDLE;
+			default -> InputConstants.MOUSE_BUTTON_LEFT;
 		};
 		awaitFrames(1); // a screen opened by the previous call positions its list widgets on first render
 		return text(onClient(() -> {
@@ -460,10 +460,10 @@ public final class Tools {
 		String message = str(a, "message", "");
 		if (message.isBlank() || message.length() > 256) throw new IllegalArgumentException("message must be 1-256 chars");
 		Minecraft mc = Minecraft.getInstance();
-		GuiMessage before = onClient(() -> {
+		Object before = onClient(() -> {
 			LocalPlayer p = requirePlayer();
-			List<GuiMessage> all = chat(mc);
-			GuiMessage newest = all.isEmpty() ? null : all.getFirst();
+			List<?> all = chat(mc);
+			Object newest = all.isEmpty() ? null : all.getFirst();
 			if (message.startsWith("/")) p.connection.sendCommand(message.substring(1));
 			else p.connection.sendChat(message);
 			return newest;
@@ -471,9 +471,9 @@ public final class Tools {
 		awaitTicks(intArg(a, "wait_ticks", 10));
 		List<String> replies = onClient(() -> {
 			List<String> out = new ArrayList<>();
-			for (GuiMessage m : chat(mc)) {
+			for (Object m : chat(mc)) {
 				if (m == before) break;
-				out.addFirst(m.content().getString());
+				out.addFirst(Compat.chatText(m));
 			}
 			return out;
 		});
@@ -502,7 +502,7 @@ public final class Tools {
 				if (!worlds.contains(name)) throw new IllegalArgumentException("No world folder '" + name + "'. Worlds: " + worlds);
 				onClient(() -> {
 					if (mc.level != null) throw new IllegalStateException("Already in a world; leave first");
-					mc.createWorldOpenFlows().openWorld(name, () -> mc.setScreen(new TitleScreen()));
+					mc.createWorldOpenFlows().openWorld(name, () -> Compat.setScreen(mc, new TitleScreen()));
 					return null;
 				});
 				return text("Loading '" + name + "'. Poll get_state until in_world is true and no screen is open.");
@@ -568,14 +568,14 @@ public final class Tools {
 			if (a.has("gui_scale")) o.guiScale().set(a.get("gui_scale").getAsInt());
 			if (a.has("gamma")) o.gamma().set(a.get("gamma").getAsDouble());
 			if (a.has("max_fps")) o.framerateLimit().set(a.get("max_fps").getAsInt());
-			if (a.has("hide_hud")) o.hideGui = a.get("hide_hud").getAsBoolean();
+			if (a.has("hide_hud")) Compat.setHudHidden(mc, a.get("hide_hud").getAsBoolean());
 			if (a.has("window_width") || a.has("window_height")) {
 				Window w = mc.getWindow();
 				w.setWindowed(intArg(a, "window_width", w.getWidth()), intArg(a, "window_height", w.getHeight()));
 			}
 			return String.format(Locale.ROOT, "fov=%d render_distance=%d simulation_distance=%d gui_scale=%d gamma=%.2f max_fps=%d hide_hud=%b window=%dx%d",
 					o.fov().get(), o.renderDistance().get(), o.simulationDistance().get(), o.guiScale().get(), o.gamma().get(),
-					o.framerateLimit().get(), o.hideGui, mc.getWindow().getWidth(), mc.getWindow().getHeight());
+					o.framerateLimit().get(), Compat.hudHidden(mc), mc.getWindow().getWidth(), mc.getWindow().getHeight());
 		}));
 	}
 
@@ -654,13 +654,14 @@ public final class Tools {
 	}
 
 	private static String screenTitle(Minecraft mc) {
-		return mc.screen == null ? "none (in game)" : "'" + mc.screen.getTitle().getString() + "'";
+		Screen screen = Compat.screen(mc);
+		return screen == null ? "none (in game)" : "'" + screen.getTitle().getString() + "'";
 	}
 
 	// ---- misc helpers ----
 
 	private static Screen requireScreen() {
-		Screen screen = Minecraft.getInstance().screen;
+		Screen screen = Compat.screen(Minecraft.getInstance());
 		if (screen == null) throw new IllegalStateException("No screen is open (in game: use press_keys / look)");
 		return screen;
 	}
@@ -671,8 +672,8 @@ public final class Tools {
 		return p;
 	}
 
-	private static List<GuiMessage> chat(Minecraft mc) {
-		return ((ChatComponentAccessor) mc.gui.getChat()).agent_mcp$getAllMessages();
+	private static List<?> chat(Minecraft mc) {
+		return ((ChatComponentAccessor) Compat.chat(mc)).agent_mcp$getAllMessages();
 	}
 
 	private static String describe(Entity e, LocalPlayer p) {
